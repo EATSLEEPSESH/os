@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
-
+#include <time.h>
 #define MAX_THREADS 10
 
 typedef struct {
@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
     int n;
     printf("Enter the size of the matrix: ");
     scanf("%d", &n);
-
+    srand(time(NULL));
     double **matrix = (double **)malloc(n * sizeof(double *));
     double *result = (double *)malloc(n * sizeof(double));
     for (int i = 0; i < n; i++) {

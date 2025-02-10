@@ -11,13 +11,12 @@ int main() {
     char *argv[] = {"./child", NULL};
     char filename[256];
 
-    // Создаем pipe
     if (pipe(pipefd) == -1) {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
 
-    // Читаем имя файла от пользователя
+
     printf("Введите имя файла: ");
     if (scanf("%s", filename) != 1) {
         fprintf(stderr, "Ошибка ввода имени файла\n");
@@ -32,31 +31,28 @@ int main() {
     }
 
     if (cpid == 0) {    /* Дочерний процесс */
-        close(pipefd[0]); // Закрываем чтение из pipe
+        close(pipefd[0]); 
 
-        // Перенаправляем стандартный вывод в pipe
+
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
 
-        // Открываем файл для чтения
+ 
         int fd = open(filename, O_RDONLY);
         if (fd == -1) {
             perror("open");
             exit(EXIT_FAILURE);
         }
 
-        // Перенаправляем стандартный ввод на файл
         dup2(fd, STDIN_FILENO);
         close(fd);
 
-        // Запускаем дочерний процесс
         execvp("./child", argv);
         perror("execvp");
         exit(EXIT_FAILURE);
     } else {    /* Родительский процесс */
-        close(pipefd[1]); // Закрываем запись в pipe
+        close(pipefd[1]); 
 
-        // Читаем вывод дочернего процесса из pipe
         char buffer[1024];
         ssize_t nbytes;
         while ((nbytes = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
@@ -67,7 +63,7 @@ int main() {
         }
 
         close(pipefd[0]);
-        wait(NULL); // Ждем завершения дочернего процесса
+        wait(NULL); 
         exit(EXIT_SUCCESS);
     }
 }
