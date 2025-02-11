@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "mckusick_karels.h": "c"
+        "mckusick_karels.h": "c",
+        "mylib.h": "c"
     }
 }

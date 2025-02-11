@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/time.h>
 #define MAX_THREADS 10
 
 typedef struct {
@@ -81,6 +82,9 @@ int main(int argc, char *argv[]) {
     ThreadData thread_data[num_threads];
     int rows_per_thread = n / num_threads;
 
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
+
     for (int i = 0; i < num_threads; i++) {
         thread_data[i].n = n;
         thread_data[i].matrix = matrix;
@@ -94,8 +98,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
-
-    // Back substitution
+    
     for (int i = n - 1; i >= 0; i--) {
         result[i] = result[i] / matrix[i][i];
         for (int j = i - 1; j >= 0; j--) {
@@ -103,10 +106,14 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    gettimeofday(&end, NULL);
+    double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
+
     printf("Matrix:\n");
     print_matrix(matrix, n);
     printf("Result:\n");
     print_result(result, n);
+    printf("Time taken: %f seconds\n", time_taken);
 
     for (int i = 0; i < n; i++) {
         free(matrix[i]);
