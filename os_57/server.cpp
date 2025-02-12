@@ -5,6 +5,10 @@
 #include <sys/wait.h>
 #include <zmq.hpp>
 #include <memory>
+#include <thread>
+#include <chrono>
+#include <atomic>
+#include <vector>
 
 using namespace std;
 
@@ -73,7 +77,7 @@ private:
         return node;
     }
 
-     std::unique_ptr<AVLNode<Key, Value>> insert(std::unique_ptr<AVLNode<Key, Value>> node, Key key, Value value) {
+    std::unique_ptr<AVLNode<Key, Value>> insert(std::unique_ptr<AVLNode<Key, Value>> node, Key key, Value value) {
         if (!node) return std::make_unique<AVLNode<Key, Value>>(key, value);
 
         if (key < node->key)
@@ -161,11 +165,11 @@ private:
             return search(node->right.get(), key);
     }
 
-    void inorder(const AVLNode<Key, Value>* node) const {
+    void inorder(const AVLNode<Key, Value>* node, std::vector<std::pair<Key, Value>>& result) const {
         if (node) {
-            inorder(node->left.get());
-            cout << node->key << " ";
-            inorder(node->right.get());
+            inorder(node->left.get(), result);
+            result.push_back({node->key, node->value});
+            inorder(node->right.get(), result);
         }
     }
 
@@ -183,14 +187,23 @@ public:
         return node ? &node->value : nullptr;
     }
 
+    std::vector<std::pair<Key, Value>> getAllNodes() const {
+        std::vector<std::pair<Key, Value>> result;
+        inorder(root.get(), result);
+        return result;
+    }
+
     void printInorder() const {
-        inorder(root.get());
+        std::vector<std::pair<Key, Value>> nodes = getAllNodes();
+        for (const auto& node : nodes) {
+            cout << node.first << " ";
+        }
         cout << endl;
     }
 };
 
-
 AVLTree<int, NodeInfo> tree;
+std::atomic<bool> stop_heartbit(false);
 
 bool isProcessAlive(int pid, int id) {
     int status;
@@ -212,6 +225,23 @@ bool isProcessAlive(int pid, int id) {
     return false;
 }
 
+void heartbit() {
+    while (!stop_heartbit) {
+        std::this_thread::sleep_for(std::chrono::seconds(20));
+
+        std::vector<std::pair<int, NodeInfo>> nodes = tree.getAllNodes();
+        for (const auto& node : nodes) {
+            int id = node.first;
+            NodeInfo node_info = node.second;
+            if (isProcessAlive(node_info.pid, id)) {
+                cout << "Process[" << id << "] is alive" << endl;
+            } else {
+                cout << "Process[" << id << "] is unavailable" << endl;
+            }
+        }
+    }
+}
+
 std::string createNode(int id) {
     if (tree.search(id)) {
         return "Error: Node already exists";
@@ -227,7 +257,7 @@ std::string createNode(int id) {
         exit(0);
     } else {
         std::ostringstream endpoint;
-        endpoint << "tcp://127.0.0.1:" << 5555 + id;
+        endpoint << "tcp://127.0.0.1:" << 6666 + id;
 
         NodeInfo node_info = {id, pid, endpoint.str()};
         tree.insert(id, node_info);
@@ -282,7 +312,6 @@ std::string pingNode(int id) {
         zmq::context_t context(1);
         zmq::socket_t socket(context, ZMQ_REQ);
 
-
         socket.connect(node_info->endpoint);
 
         zmq::message_t ping("ping", 4);
@@ -306,9 +335,10 @@ std::string pingNode(int id) {
     }
 }
 
-
 int main() {
     cout << "Manager started. Commands: create id, exec id [cmd], ping id" << endl;
+
+    std::thread heartbit_thread(heartbit);
 
     std::string input;
     while (getline(cin, input)) {
@@ -330,6 +360,9 @@ int main() {
             cout << "Error: Invalid command" << endl;
         }
     }
+
+    stop_heartbit = true;
+    heartbit_thread.join();
 
     return 0;
 }

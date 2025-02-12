@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "mckusick_karels.h": "c",
-        "mylib.h": "c"
+        "mylib.h": "c",
+        "iostream": "cpp"
     }
 }

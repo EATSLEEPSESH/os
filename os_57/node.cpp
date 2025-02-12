@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
     zmq::context_t context(1);
     zmq::socket_t socket(context, ZMQ_REP);
     std::ostringstream endpoint;
-    endpoint << "tcp://*:" << 5555 + id;
+    endpoint << "tcp://*:" << 6666 + id;
     socket.bind(endpoint.str());
 
     std::cout << "Node " << id << " started\n";
