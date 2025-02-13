@@ -216,7 +216,7 @@ bool isProcessAlive(int pid, int id) {
         // Процесс завершился, удаляем его из системы
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
             tree.erase(id);
-            cout << "Process " << pid << " became a zombie and was reaped." << endl;
+            cout << "Process " << pid << " was eliminated." << endl;
             return false;
         }
     }

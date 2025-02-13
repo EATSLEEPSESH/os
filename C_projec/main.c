@@ -7,70 +7,69 @@
 #include <unistd.h>
 #include <stdint.h>
 
-// ------------------- Список свободных блоков -------------------
+// ------------------- Аллокатор Мак-Кьюзи-Кэрелса -------------------
 
-typedef struct Block {
-    size_t size;
-    bool is_free;
-    struct Block* next;
-} Block;
-
+#define BLOCK_SIZE 64 // Размер блока памяти (в байтах)
+#define MEMORY_POOL_SIZE 2048*2048*10 // Размер пула памяти
+#define BITMAP_SIZE (MEMORY_POOL_SIZE / BLOCK_SIZE / 8) // Размер битовой карты
 
 typedef struct {
-    Block* head;
-    void* memory_pool;
-} ListAllocator;
+    void* memory_pool; // Указатель на пул памяти
+    size_t pool_size;  // Размер пула памяти
+    uint8_t* bitmap;   // Битовая карта для отслеживания свободных блоков
+} McKusickKarelsAllocator;
 
-ListAllocator* createListAllocator(void* memory, size_t size) {
-    ListAllocator* allocator = (ListAllocator*)malloc(sizeof(ListAllocator));
+McKusickKarelsAllocator* createMcKusickKarelsAllocator(void* memory, size_t size) {
+    McKusickKarelsAllocator* allocator = (McKusickKarelsAllocator*)malloc(sizeof(McKusickKarelsAllocator));
     allocator->memory_pool = memory;
-    allocator->head = (Block*)memory;
-    allocator->head->size = size - sizeof(Block);
-    allocator->head->is_free = true;
-    allocator->head->next = NULL;
+    allocator->pool_size = size;
+    allocator->bitmap = (uint8_t*)calloc(BITMAP_SIZE, sizeof(uint8_t)); // Инициализация битовой карты нулями
     return allocator;
 }
 
-void* listAlloc(ListAllocator* allocator, size_t size) {
-    Block* current = allocator->head;
-    while (current) {
-        if (current->is_free && current->size >= size) {
-            if (current->size > size + sizeof(Block)) {
-                // Разделение блока
-                Block* new_block = (Block*)((char*)current + sizeof(Block) + size);
-                new_block->size = current->size - size - sizeof(Block);
-                new_block->is_free = true;
-                new_block->next = current->next;
-                current->next = new_block;
+void* mckusickKarelsAlloc(McKusickKarelsAllocator* allocator, size_t size) {
+    size_t num_blocks = (size + BLOCK_SIZE - 1) / BLOCK_SIZE; // Вычисляем количество необходимых блоков
+
+    // Поиск последовательности свободных блоков в битовой карте
+    for (size_t i = 0; i < BITMAP_SIZE; ++i) {
+        if (allocator->bitmap[i] != 0xFF) { // Если байт не полностью занят
+            for (size_t j = 0; j < 8; ++j) {
+                if (!(allocator->bitmap[i] & (1 << j))) { // Если блок свободен
+                    bool found = true;
+                    for (size_t k = 1; k < num_blocks; ++k) {
+                        if (i + k >= BITMAP_SIZE || (allocator->bitmap[i + k] & (1 << j))) {
+                            found = false;
+                            break;
+                        }
+                    }
+                    if (found) {
+                        // Помечаем блоки как занятые
+                        for (size_t k = 0; k < num_blocks; ++k) {
+                            allocator->bitmap[i + k] |= (1 << j);
+                        }
+                        return (void*)((char*)allocator->memory_pool + (i * 8 + j) * BLOCK_SIZE);
+                    }
+                }
             }
-            current->is_free = false;
-            current->size = size;
-            return (char*)current + sizeof(Block);
         }
-        current = current->next;
     }
-    return NULL; // Нет подходящего блока
+    return NULL; // Нет подходящих блоков
 }
 
-void listFree(ListAllocator* allocator, void* ptr) {
+void mckusickKarelsFree(McKusickKarelsAllocator* allocator, void* ptr) {
     if (!ptr) return;
-    Block* block = (Block*)((char*)ptr - sizeof(Block));
-    block->is_free = true;
 
-    // Объединение соседних свободных блоков
-    Block* current = allocator->head;
-    while (current) {
-        if (current->is_free && current->next && current->next->is_free) {
-            current->size += sizeof(Block) + current->next->size;
-            current->next = current->next->next;
-        } else {
-            current = current->next;
-        }
-    }
+    // Вычисляем индекс блока в битовой карте
+    size_t block_index = ((char*)ptr - (char*)allocator->memory_pool) / BLOCK_SIZE;
+    size_t byte_index = block_index / 8;
+    size_t bit_index = block_index % 8;
+
+    // Помечаем блок как свободный
+    allocator->bitmap[byte_index] &= ~(1 << bit_index);
 }
 
-void destroyListAllocator(ListAllocator* allocator) {
-    allocator->head = NULL; // Блоки в memory_pool автоматически освобождаются.
+void destroyMcKusickKarelsAllocator(McKusickKarelsAllocator* allocator) {
+    free(allocator->bitmap);
     free(allocator);
 }
 
@@ -254,48 +253,12 @@ void buddyFree(BuddyAllocator* allocator, void* ptr) {
 // ------------------- Тестирование -------------------
 #define MEMORY_POOL_SIZE 2048*2048*10
 
-void testListAllocator() {
-    void* memory_pool = malloc(MEMORY_POOL_SIZE);
-    ListAllocator* list_allocator = createListAllocator(memory_pool, MEMORY_POOL_SIZE);
 
-    const int NUM_ALLOCS = 100000;
-    void* blocks[NUM_ALLOCS];
-
-    // Измеряем время выделения памяти
-    clock_t start = clock();
-    for (int i = 0; i < NUM_ALLOCS/2; ++i) {
-        blocks[i] = listAlloc(list_allocator, 25);
-        if (blocks[i] == NULL) {
-            fprintf(stderr, "Failed to allocate block #%d\n", i);
-        }
-    }
-    for (int i = NUM_ALLOCS/2; i < NUM_ALLOCS; ++i) {
-        blocks[i] = listAlloc(list_allocator, 367);
-        if (blocks[i] == NULL) {
-            fprintf(stderr, "Failed to allocate block #%d\n", i);
-        }
-    }
-    clock_t end = clock();
-    double alloc_duration = (double)(end - start) / CLOCKS_PER_SEC;
-    printf("ListAllocator: Time for allocations: %f seconds\n", alloc_duration);
-
-    // Измеряем время освобождения памяти
-    start = clock();
-    for (int i = 0; i < NUM_ALLOCS; ++i) {
-        listFree(list_allocator, blocks[i]);
-    }
-    end = clock();
-    double free_duration = (double)(end - start) / CLOCKS_PER_SEC;
-    printf("ListAllocator: Time for frees: %f seconds\n", free_duration);
-
-    destroyListAllocator(list_allocator);
-    free(memory_pool);
-}
 
 void testBuddyAllocator() {
     BuddyAllocator* allocator = createBuddyAllocator(MEMORY_POOL_SIZE, false);
 
-    const int NUM_ALLOCS = 100000;
+    const int NUM_ALLOCS = 50000;
     void* blocks[NUM_ALLOCS];
 
     // Измеряем время выделения памяти
@@ -328,11 +291,50 @@ void testBuddyAllocator() {
     destroyBuddyAllocator(allocator);
 }
 
+void testMcKusickKarelsAllocator() {
+    void* memory_pool = malloc(MEMORY_POOL_SIZE);
+    McKusickKarelsAllocator* mckusick_karels_allocator = createMcKusickKarelsAllocator(memory_pool, MEMORY_POOL_SIZE);
+
+    const int NUM_ALLOCS = 100000;
+    void* blocks[NUM_ALLOCS];
+
+    // Измеряем время выделения памяти
+    clock_t start = clock();
+    for (int i = 0; i < NUM_ALLOCS/2; ++i) {
+        blocks[i] = mckusickKarelsAlloc(mckusick_karels_allocator, 25);
+        if (blocks[i] == NULL) {
+            fprintf(stderr, "Failed to allocate block #%d\n", i);
+        }
+    }
+    for (int i = NUM_ALLOCS/2; i < NUM_ALLOCS; ++i) {
+        blocks[i] = mckusickKarelsAlloc(mckusick_karels_allocator, 367);
+        if (blocks[i] == NULL) {
+            fprintf(stderr, "Failed to allocate block #%d\n", i);
+        }
+    }
+    clock_t end = clock();
+    double alloc_duration = (double)(end - start) / CLOCKS_PER_SEC;
+    printf("McKusickKarelsAllocator: Time for allocations: %f seconds\n", alloc_duration);
+
+    // Измеряем время освобождения памяти
+    start = clock();
+    for (int i = 0; i < NUM_ALLOCS; ++i) {
+        mckusickKarelsFree(mckusick_karels_allocator, blocks[i]);
+    }
+    end = clock();
+    double free_duration = (double)(end - start) / CLOCKS_PER_SEC;
+    printf("McKusickKarelsAllocator: Time for frees: %f seconds\n", free_duration);
+
+    destroyMcKusickKarelsAllocator(mckusick_karels_allocator);
+    free(memory_pool);
+}
+
+
 int main() {
     printf("Starting performance tests...\n");
 
     // Тестирование ListAllocator
-    testListAllocator();
+    testMcKusickKarelsAllocator();
 
     // Тестирование BuddyAllocator
     testBuddyAllocator();
